@@ -1,0 +1,173 @@
+---
+title: "CSC 423 Final Project"
+author: "Akhil Kumar Ramasagaram; Sourabh Gujar"
+date: "June 5, 2016"
+output: html_document
+---
+##I. Overview
+
+We analyzed the bike sharing system in Washington, DC. Core to this analysis, we will be predicting the total number of bike rentals by hour, throughout the day based on other variables, alongwith exploring data checking assumptions. In our total data set there are a total of 10886 rows of hourly rental data spanning two years pulled from Kaggle. The variables in this datasets are listed below, in which count is the response variable.
+
+  datetime: hourly date + timestamp  
+  season: 1 = spring, 2 = summer, 3 = fall, 4 = winter  
+  holiday: whether the day is considered a holiday  
+  workingday: whether the day is neither a weekend nor holiday  
+  weather: 1: Clear, Few clouds, Partly cloudy, Partly cloudy 2: Mist + Cloudy, Mist + Broken
+  clouds, Mist + Few clouds, Mist 3: Light Snow, Light Rain + Thunderstorm +
+  Scattered clouds, Light Rain + Scattered clouds 4: Heavy Rain + Ice Pallets +
+  Thunderstorm + Mist, Snow + Fog  
+  temp: temperature in Celsius  
+  atemp: &quot;feels like&quot; temperature in Celsius  
+  humidity: relative humidity  
+  windspeed: wind speed  
+  casual: number of non-registered user rentals initiated  
+  registered: number of registered user rentals initiated  
+  count: number of total rentals  
+  
+## Scatter and Correlation Plots
+```{r, warning=FALSE, echo=FALSE, results='markup'}
+library(corrplot)
+library(ggplot2)
+bike_data <- read.csv("train.csv")
+corrplot(cor(bike_data[,-1]),type = "lower", mar = c(2,0,2,0), title = "Initial Correlation Plot")
+```
+
+From the above plot, we can see that temp and atemp are highly correlated thats because air temperature is almost similar to that of temperature and as we have multiple dependent variable the casual, registered and count are also very correlated because count is nothing but sum of both casual and registered rentals here. Along with some some notable correlations among temperature and casual and registered rentals. Lets try to extract different fields from the datetime variable and see their correlations.
+```{r warning=FALSE, echo=FALSE, results='markup'}
+time <- substring(bike_data$datetime,12,20)
+bike_data$hour<- as.numeric(substr(time,1,2))
+bike_data <- bike_data[,c("datetime","season","holiday","workingday","weather","temp","atemp","humidity","windspeed","hour","casual","registered","count")]
+corrplot(cor(bike_data[,-1]),type = "lower", mar = c(2,0,2,0), title = "After Transformation Correlation Plot")
+```
+
+Now the hour variable has some correlation with variable like temperature and humidity.
+
+Lets see how the rentals change across seasons
+```{r warning=FALSE, echo=FALSE, results='markup', fig.height=4, fig.width=10}
+library(gridExtra)
+library(ggplot2)
+casual_plot_data <- aggregate(casual ~ hour + season, data = bike_data, mean)
+p1 <- ggplot(casual_plot_data, aes(x = hour, y = casual, colour = factor(season))) + geom_line() + xlab("Hour") + ylab("Average Casual Rentals") + 
+  ggtitle("Average Casual Rentals Across Time") + scale_color_manual("Season\n",labels = c("Spring", "Summer", "Fall", "Winter"), values = c(1,2,3,4))
+registered_plot_data <- aggregate(registered ~ hour + season, data = bike_data, mean)
+p2 <- ggplot(registered_plot_data, aes(x = hour, y = registered, colour = factor(season))) + geom_line()+ xlab("Hour") + ylab("Average Registered Rentals") + 
+  ggtitle("Average Registered Rentals Across Time") + scale_color_manual("Season\n",labels = c("Spring", "Summer", "Fall", "Winter"), values = c(1,2,3,4))
+grid.arrange(p1,p2,ncol = 2)
+```
+
+Lets se how rentals change with different weather
+```{r warning=FALSE, echo=FALSE, results='markup', fig.height=6, fig.width=11}
+library(gridExtra)
+library(ggplot2)
+casual_plot_data <- aggregate(casual ~ hour + weather, data = bike_data, mean)
+p1 <- ggplot(casual_plot_data, aes(x = hour, y = casual, colour = factor(weather))) + geom_line() + xlab("Hour") + ylab("Average Casual Rentals") + 
+  ggtitle("Average Casual Rentals Across Time") + 
+  scale_color_manual("Weather\n",labels = c("Clear, Few or Partly Cloudy", 
+                                            "Mist & Cloudy", 
+                                            "Light Snow, Rain, Thunderstorm", 
+                                            "Heavy Rain, Ice Pallets, Thunderstorm, Snow & Fog "), values = c(1,2,3,4))
+registered_plot_data <- aggregate(registered ~ hour + weather, data = bike_data, mean)
+p2 <- ggplot(registered_plot_data, aes(x = hour, y = registered, colour = factor(weather))) + geom_line()+ xlab("Hour") + ylab("Average Registered Rentals") + 
+  ggtitle("Average Registered Rentals Across Time") + scale_color_manual("Weather\n",labels = c("Clear, Few or Partly Cloudy", 
+                                            "Mist & Cloudy", 
+                                            "Light Snow, Rain, Thunderstorm", 
+                                            "Heavy Rain, Ice Pallets, Thunderstorm, Snow & Fog "), values = c(1,2,3,4))
+grid.arrange(p1,p2,ncol = 1)
+```
+
+If you lookat the graph there arn't any details about our severe weather which is 'Heavy Rain, Ice Pallets, Thunderstorm, Snow & Fog'. This might be result of an error while collecting data or there are really no observation during this weather.
+
+## Data Transformation
+As explained in the above, we have two dependent variable here, total casual rentals & total registered rentals. The count variable is the sum of total casual and registered rentals of that particular hour. We also need to convert some variable into categorical variable such as season, weather, workingday, holiday & hour.
+Numerical variable are temperature, humidity, windspeed and we removed the air temperature variable as it has high correlation.
+
+```{r, echo=FALSE}
+bike_data$season <- as.factor(bike_data$season)
+bike_data$weather <- as.factor(bike_data$weather)
+bike_data$workingday <- as.factor(bike_data$workingday)
+bike_data$holiday <- as.factor(bike_data$holiday)
+bike_data$hour <- as.factor(bike_data$hour)
+bike_data$atemp <- NULL
+bike_data$datetime <- NULL
+```
+
+## Checking for Interactions
+Lets check for interaction among weather and season, based on intuition, we should observe interaction but lets check it.
+```{r, echo=FALSE}
+casual_weather_season_fit = aov(casual ~ weather * season, data=bike_data)
+reg_weather_season_fit = aov(registered ~ weather * season, data=bike_data)
+print("Test for difference in Casual rentals")
+summary(casual_weather_season_fit)
+print("Test for difference in Registered rentals")
+summary(reg_weather_season_fit)
+```
+The ANOVA test indicates a significant difference in casual and registered rentals due to season levels and to weather levels There is a signficant interaction effect.
+
+Lets check for interaction among hour and temperature, based on intuition, we should again observe interaction but lets check it.
+```{r, echo=FALSE, cache=TRUE}
+casual_weather_season_fit = aov(casual ~ hour * factor(temp), data=bike_data)
+reg_weather_season_fit = aov(registered ~ hour * factor(temp), data=bike_data)
+print("Test for difference in Casual rentals")
+summary(casual_weather_season_fit)
+print("Test for difference in Registered rentals")
+summary(reg_weather_season_fit)
+```
+The ANOVA test indicates a significant difference in casual and registered rentals due to hour and to temperature level. There is a signficant interaction effect.
+
+## Search for Model
+
+As we have 5 categorical and 3 numerical variables, lets find a better model both for casual and registered rentals.
+```{r}
+full.model_casual <- lm(log(casual + 1) ~ season + holiday + workingday + weather + temp +  humidity + windspeed + hour, data = bike_data)
+casual_model <- step(full.model_casual, direction = "backward")
+summary(casual_model)
+full.model_reg <- lm(log(registered + 1) ~ season + holiday + workingday + weather + temp +  humidity + windspeed + hour, data = bike_data)
+reg_model <- step(full.model_reg, direction = "backward")
+summary(reg_model)
+```
+
+Holiday was removed while performing backward step operation in both the casual and registered models. We also have a strong R-Square which is .80 and .78.
+
+## Model Validation
+
+Inorder to test our model, we are going to divide our data into training and test set. We will use 80% for training and 20% for testing.
+```{r echo=F, warning=FALSE, message=FALSE}
+library(caret)
+ind <- createDataPartition(bike_data$count, p = 0.8, list = F, times = 1)
+train <- bike_data[ind,]
+test <- bike_data[-ind,]
+casual_model <- lm(log(casual + 1) ~ season + workingday + weather + temp +  humidity + windspeed + hour, data = train)
+reg_model <- lm(log(registered + 1) ~ season + workingday + weather + temp +  humidity + windspeed + hour, data = train)
+casual_resd <- rstandard(casual_model)
+reg_resd <- rstandard(reg_model)
+
+print("Casual Rentals")
+par(mfrow = c(1,2))
+plot(casual_resd, col = "red",main = "Residual Plot")
+abline(0,0)
+qqnorm(casual_resd, main = "Residual Normality plot",col = "red")
+qqline(casual_resd)
+
+print("Registered Rentals")
+par(mfrow = c(1,2))
+plot(reg_resd, col = "red",main = "Residual Plot")
+abline(0,0)
+qqnorm(reg_resd, main = "Residual Normality plot",col = "red")
+qqline(reg_resd)
+```
+
+
+As we can see, although most of our ersiduals falls under 2 SD, there are significant observations who falls out side 2 SD. But the residuals for the casual rentals looks far better than the registered rentals.
+
+Now lets make prediction our test data and calculate the Error.
+
+```{r}
+casual_pred <- exp(predict(casual_model, test)) - 1
+reg_pred <- exp(predict(reg_model, test)) - 1
+total_count <- casual_pred + reg_pred
+error <- test$count - total_count
+rmse <- sqrt(mean(error^2))
+rmse
+```
+
+
